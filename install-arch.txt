@@ -1,0 +1,227 @@
+Windows / Arch Linux
+
+Arch install video: https://www.youtube.com/watch?v=a00wbjy2vns
+
+
+Windows
+=======
+Leave space for Arch partition and Shared Fat partition
+Windows will take the largest partition available and create extra partitions.
+
+nvme0n1 - 465.8G
+p1 529M - Windows Recovery partition
+p2 100M - FAT32 EFI partition (created by Windows)
+p3 16M - Windows
+p4 194.7G - Arch root
+p5 48.8G - fat32 shared
+p6 221.1G - NTFS Windows
+ 
+nvme1n1 - 1.8T
+p1 1.8T - Arch home
+
+Arch
+====
+
+Format shared partition:
+	mkfs.fat -F32 /dev/nvme0n1p5
+
+Format Arch root partition
+	mkfs.ext4 /dev/nvme0n1p4
+
+Create partition table for nvme1 (home)
+	fdisk /dev/nvme1n1
+	>g  -- for gpt partition
+	>p  -- to print current partitions
+	>n  -- new partition (accept defaults for entire drive; 'y' to overwrite signature if needed )
+	>w  -- write partitions
+
+Format Data partition
+	mkfs.ext4 /dev/nvme1n1p1
+
+Install Arch in /mnt (for setup)
+================================
+
+Mount arch root partition as /mnt
+	mount /dev/nvme0n1p4 /mnt
+ 
+Create home dir and mount home partition as /home
+	mkdir /mnt/home
+	mount /dev/nvme1n1p1 /mnt/home
+
+To verify partitions
+	df -h
+
+Create /etc
+	mkdir /mnt/etc
+
+Save fstab
+	genfstab -U -p /mnt >> /mnt/etc/fstab
+
+Install packages
+	pacstrap -i /mnt base
+
+Enter chroot
+	arch-chroot /mnt
+
+Install kernel (both latest and lts - so can switch between if needed)
+	pacman -S linux linux-headers linux-lts linux-lts-headers
+
+Install text editor
+	pacman -S nano emacs
+
+Install tools
+	pacman -S openssh base-devel
+
+(optional) If you need to support incoming ssh connections:
+	systemctl enable sshd
+
+Wireless tools
+	pacman -S networkmanager wpa_supplicant wireless_tools netctl
+
+Dialogs from command line tools
+	pacman -S dialog
+
+Enable networkmanager (run at startup)
+	systemctl enable NetworkManager
+
+Make ramdisk for linux kernel
+	mkinitcpio -p linux
+	mkinitcpio -p linux-lts
+
+Set up locales
+	emacs /etc/locale.gen
+		-- uncomment out locale: en_US.UTF-8 UTF8
+	locale-gen
+
+Set root password
+	passwd
+
+Create user and set password
+	useradd -m -g users -G wheel garykac
+	passwd garykac
+
+Add user to sudo-ers
+	EDITOR=emacs visudo
+		-- uncomment out: %wheel ALL=(ALL) ALL
+
+Install Grub packages
+	pacman -S efibootmgr dosfstools os-prober mtools
+
+Mount EFI partition - reused EFI partition created by Windows
+	mkdir /boot/EFI
+	mount /dev/nvme0n1p2 /boot/EFI
+
+Install grub bootloader 
+Note: Boot Device Control (Secure Boot) in BIOS must be UEFI only. Or "EFI variables are not supported" error.
+Test by running `efivar-tester`
+	grub-install --target=x86_64-efi --bootloader-id=grub_uefi --recheck
+	mkdir /boot/grub/locale  // may already exist
+	cp /usr/share/locale/en\@quot/LC_MESSAGES/grub.mo /boot/grub/locale/en.mo
+		// could also copy from `/boot/grub/locale/en\@quot.mo` if present
+
+Generate grub config
+	grub-mkconfig -o /boot/grub/grub.cfg
+		// it should find Windows Boot Manager
+
+Create swap file
+	fallocate -l 2G /swapfile
+	chmod 600 /swapfile
+	mkswap /swapfile
+
+Make swapfile activate at boot
+	cp /etc/fstab /etc/fstab.bak  // Backup fstab file
+	echo '/swapfile none swap sw 0 0' | tee -a /etc/fstab
+	cat /etc/fstab  // To verify it looks good
+	
+Extra stuff
+	pacman -S amd-ucode  // Processor microcode
+	pacman -S xorg-server  // Needed by desktop env
+
+Extra stuff for GPUs
+	pacman -S mesa  // For amd/intel graphics
+	pacman -S nvidia nvidia-utils nvidia-lts  // For nvidia graphics
+
+Allocate empty 10G file that can be easily deleted when running out of disk space
+	fallocate -l 10G /empty-10g
+
+Exit chroot
+	exit
+	
+Reboot
+======
+
+	umount -a
+	reboot
+
+
+Display manager
+===============
+https://wiki.archlinux.org/title/LightDM
+	sudo pacman -S lightdm
+	sudo pacman -S lightdm-gtk-greeter
+
+#Edit lightdm config
+#	/etc/lightdm/lightdm.conf
+#		greeter-session=lightdm-gtk-greeter
+
+Enable Lightdm
+	sudo systemctl enable lightdm
+	// Use dm-tools to cmd line control
+
+
+Window Manager
+==============
+
+	sudo pacman -S cinnamon
+	sudo pacman -S terminator  // terminal (or gnome-terminal)
+
+	sudo pacman -S xorg
+	
+
+REBOOT
+
+	
+
+Trizen
+======
+	sudo pacman -Sy --needed base-devel git
+	mkdir ~/installer
+	cd installer
+	git clone https://aur.archlinux.org/trizen.git
+	cd trizen
+	makepkg -si
+	
+
+Packages
+thunar  // file manager
+vlc // video
+google-chrome
+trizen -S extra/firefox
+
+Install Steam
+
+	aur/steamcmd  // ???
+Enable multilib
+	Uncomment `multilib` section in /etc/pacman.conf
+	
+	System up to date
+		sudo pacman -Syu
+	sudo pacman -S steam
+
+	aur/ttf-ms-fonts  // for missing fonts - dialogs will be unreadable without this
+	multilib/lib32-freetype2  // needed?
+
+
+trizen -S retext  // markdown editor
+trizen -S shotwell  // image viewer
+
+
+trizen -S ntp  // network time server
+systemctl enable --now ntpd  // sync close once/reboot.
+	// use a daemon if the machine is not rebooted frequently or else local clock will drift
+
+
+XXX trizen -S pcloud-drive
+trizen -S rclone
+	https://rclone.org/pcloud/
+	
